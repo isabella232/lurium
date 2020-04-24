@@ -1,0 +1,33 @@
+# NMakefile for compiling the scorch client to js.
+# Expects both nmake and Emscripten on the path. The vcxproj build action
+# calls C:\Program Files\Emscripten\emsdk.bat before nmake.
+
+WWWPATH = ..\scorch_www
+OBJPATH = Emscripten
+OBJEXT = bc
+CFLAGS = -c -O3 -I../../include -s MAIN_MODULE=1 -std=c++11 -stdlib=libc++
+LINKFLAGS = -O3 -s PRECISE_F32=1 -s NO_FILESYSTEM=1 -s ASM_JS=1 --memory-init-file 0 --js-library ../lurium/websocket.js --js-library ../lurium/httprequest.js --js-library ../lurium/welcome_textbox.js
+
+CLIENT_TARGETS = \
+	$(OBJPATH)\main.$(OBJEXT)
+
+SERVER_TARGETS =
+
+all: $(SERVER_TARGETS) $(CLIENT_TARGETS) $(WWWPATH)\scorch.js
+
+clean:
+	del $(SERVER_TARGETS) $(CLIENT_TARGETS) $(WWWPATH)\scorch.js
+
+$(CLIENT_TARGETS): $(@B).cpp
+	@echo Building $@ from $(@B).c
+	@if not exist $(OBJPATH) mkdir $(OBJPATH)
+	emcc $(CFLAGS) $(@B).cpp -o $@
+
+#$(SERVER_TARGETS): ..\scorch_server\$(@B).cpp
+#	@echo Building $@ from $(@B).c
+#	@if not exist $(OBJPATH) mkdir $(OBJPATH)
+#	emcc $(CFLAGS) ..\scorch_server\$(@B).cpp -o $@
+
+$(WWWPATH)\scorch.js: $(SERVER_TARGETS) $(CLIENT_TARGETS)
+	call emcc $(SERVER_TARGETS) $(CLIENT_TARGETS) $(LINKFLAGS) -o $(WWWPATH)\scorch.js
+	@rem copy $(OBJPATH)\linx.js ..\web\js\glwrap.js /y

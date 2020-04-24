@@ -1,0 +1,5 @@
+include ':lurium_android', ':scorch_android', ':vikings_android'
+
+project(':lurium_android').projectDir = new File('src/lurium_android')
+project(':scorch_android').projectDir = new File('src/scorch_android')
+project(':vikings_android').projectDir = new File('src/vikings_android')

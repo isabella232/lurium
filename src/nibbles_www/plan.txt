@@ -1,0 +1,20 @@
+Nibbles game server
+	- Loads config file w/game mode rules
+	- Clients connects via websocket
+	- Connects to control server behind the scenes to promote game mode and ip
+	- Relies on quadtrees for querying nearest objects and collision detection
+
+Nibbles control server
+	- Accepts websocket connections from game servers behind the scenes
+	- Public REST interface to query active game modes and game servers
+	
+Nibbles user interface
+	- Loads game modes from the control server's "list" feed
+	- Connects to game server using IP returned from the control server's "ip" feed
+
+	
+Currently running one control server daemon and two game daemons
+	
+TODO:
+	- Game protocol to send diffs instead of full state each frame
+	- 

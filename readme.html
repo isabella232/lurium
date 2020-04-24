@@ -1,0 +1,216 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/1.6.4/showdown.min.js"></script>
+
+<pre id="md">
+# Lurium Engine #
+
+Framework for building multiplayer game servers and clients in
+C++ targeting web, mobile and desktop platforms.
+
+Re-implementations of the classic games Nibbles and Scorched Earth.
+
+## Included third party libraries ##
+
+- stb_truetype
+- stb_image
+- stb\_image\_write
+- utf8
+- picojson
+- earcut (triangulation)
+- beast (http client)
+- websocketpp
+- glm (vector and matrix math)
+- glew (opengl on windows)
+
+## Lurium classes ##
+
+- 2D graphics: bitmaps, fonts, text, images
+- 3D graphics: 
+	- textures from png, bitmaps
+	- triangle, quad, sphere, terrain, linked obj2h meshes, shape, line
+	- render to texture
+	- shader utilities, extensible shader base class
+	- basic material shader with directional light and shadows
+- Math:
+	- quadtree, quadtree diffing
+	- line/line, ray/sphere, sphere/sphere intersection
+	- random generator
+- Game server:
+	- configuration parser
+	- control client (load balancer backend)
+	- binary serializer and deserializer, messaging
+	- game_server (framerate, messaging, load balancing)
+- Game client:
+	- control\_frontend\_client (load balancer frontend)
+	- main_loop with render window for Win32, Emscripten, Android
+	- httprequest, websocket wrappers for native and browser
+	- welcome screen ui component using load balancer
+		
+## Lurium tools ##
+
+- obj2h - converts many 3d formats to a .h file (uses AssImp)
+- bin2h - converts any binary files to a .h file
+- control_server - game mode and game server load balancer
+
+## Use cases ##
+
+- Develop, build and package for web and Windows in Visual Studio
+- Build and package for Android using Android Studio
+- Build and package for iPhone/iOS using Xcode
+- Build and package Linux game server tarball using autoconf
+- Set up a Linux game server with systemd and nginx
+- Set up a Linux load balancing server with systemd and ngingx
+
+
+# Develop, build and package for web and Windows in Visual Studio #
+
+## Dependencies ##
+
+Required software and dependencies must be installed manually:
+
+- Visual Studio 2015 Community or newer with C++
+- Emscripten
+- Boost (headers only, not in the repo)
+
+Visual Studio must be configured to find the Boost headers. Additionally, the 
+Emscripten project files have hardcoded the path to the Emscripten SDK in the 
+build actions. These must be updated if not installed in the default location:
+
+	C:\Program Files\Emscripten\emsdk.bat
+
+
+# Build and package for Android using Android Studio #
+
+## Dependencies ##
+
+- Android Studio
+- LLDB (from SDK Manager)
+- Intel x86 Emulator Accelerator (HAXM Installer) (from SDK Manager)
+- NDK (from SDK Manager)
+- Boost (manually installed prebuilt binaries)
+
+Open the Android Studio SDK Manager and find the "SDK Tools" tab. It is 
+located	here: Tools -> Android -> SDK Manager -> Appearance and Behavior -> 
+System Settings -> Android SDK -> SDK Tools
+
+## Install Boost for Android ##
+
+Download the prebuilt binaries of Boost for Android from here: TODO: link
+
+Copy the Boost binaries into NDK's default directory for third party libraries 
+where Android Studio can find them. On Windows, this directory is here: 
+%LOCALAPPDATA%\Android\sdk\ndk-bundle\sources
+
+## Build Boost for Android using ndkpkg on WSL ##
+
+The prebuilt binaries does not contain everything yet. The prebuild binaries 
+were made with a custom tool called "ndkpkg" - basically a primitive package
+manager for NDK. ndkpkg requires a Unix environment such as WSL or Ubuntu.
+		
+Steps to build Boost for Android in Bash:
+
+	cd ~
+	wget https://dl.google.com/android/repository/android-ndk-r14-linux-x86_64.zip
+	sudo apt-get unzip subversion g++
+	sudo unzip android-ndk-r14-linux-x86_64.zip -d /opt
+
+	echo 'export ANDROID_NDK=/opt/android-ndk-r14' >> ~/.bashrc
+	echo 'export NDK_ROOT=/opt/android-ndk-r14' >> ~/.bashrc
+	echo 'export PATH=$PATH:$ANDROID_NDK' >> ~/.bashrc
+	source ~/.bashrc
+
+	svn co svn://anders-e.com/ndkpkg/trunk ndkpkg
+	cd ndkpkg
+	chmod +x ndkpkg.sh
+
+	sudo -E ./ndkpkg.sh boost_1_63_0 android-9 armeabi-v7a
+	sudo -E ./ndkpkg.sh boost_1_63_0 android-9 x86
+	sudo -E ./ndkpkg.sh boost_1_63_0 android-21 x64
+
+
+# Set up a Linux game server with systemd and nginx #
+
+	sudo apt-get install g++ make libboost-dev libboost-system-dev \
+		libboost-chrono-dev
+	tar xzfv lurium-engine-1.0.tar.gz
+	./configure && make
+	sudo make install
+
+If everything went well, the server binaries should be installed to
+/usr/local/bin. Next you want to set up locked down user accounts and install
+init scripts for running one or more game modes.
+
+## Install init scripts on Debian ##
+
+	cd debian
+	chmod +x install_service.sh
+	sudo ./install_service.sh control
+	sudo ./install_service.sh nibbles default0 ../nibbles/default0.ini
+	sudo ./install_service.sh nibbles small0 ../nibbles/small0.ini
+
+install_service.sh creates:
+- locked down user account
+- home directory with configuration
+- systemd service which restarts automatically after a reboot
+
+Use the systemctl command to manage the services:
+	systemctl start control_server.service 
+	systemctl stop nibbles_default0.service 
+	systemctl status nibbles_small0.service 
+
+# Build and package Linux game server tarball using autoconf #
+
+	sudo apt-get install autoconf 
+	autoreconf -i
+	./configure
+	make dist
+
+If working in the repository and making changes to configure.ac, regenerate configure:
+
+	autoconf
+
+
+http://stackoverflow.com/questions/26837148/autoconf-and-init-scripts
+
+https://www.debian.org/doc/manuals/maint-guide/dother.en.html#initd
+
+
+https://www.digitalocean.com/community/tutorials/how-to-add-delete-and-grant-sudo-privileges-to-users-on-a-debian-vps
+
+
+
+https://www.digitalocean.com/community/tutorials/how-to-configure-a-linux-service-to-start-automatically-after-a-crash-or-reboot-part-1-practical-examples#step-4-%E2%80%94-configuring-mysql-to-auto-start-after-crash
+
+
+
+
+Building Boost for Android
+
+sudo -E ./ndkpkg.sh boost android-21 x86_x64
+sudo -E ./ndkpkg.sh boost android-9 x86
+sudo -E ./ndkpkg.sh boost android-9 armeabi-v7a
+
+General minimum Android API version requirements for architectures:
+
+x86_64: minimum android-21
+The NDK provides native versions of Android APIs for 64-bit x86 machine code starting from Android 5.0 (Android API level 21). If your project files target an older API level, but include x86_64 as a targeted platform, the NDK build script automatically selects the right set of native platform headers and libraries for you.
+source: https://developer.android.com/ndk/guides/x86-64.html
+
+x86: minimum android-9
+x86 support requires, at minimum, Android 2.3 (Android API level 9). If your project files target an older API level, but include x86 as a targeted platform, the NDK build script automatically selects the right set of native platform headers/libraries for you.
+source: https://developer.android.com/ndk/guides/x86.html
+
+mips: minimum android-9
+MIPS support requires, at minimum, Android 2.3 (Android API level 9). If your project files target an older API level, but include MIPS as a targeted platform, the NDK build script automatically selects the right set of native platform headers/libraries for you.
+source: https://developer.android.com/ndk/guides/mips.html
+
+arm, armeabi-v7a: minimum android-3, effectively android-9
+ARM has been supported since the first releases (release 3 is the first one to support native NDK development at all). Since both armeabi and armeabi-v7a link to the same libraries (in the arch-arm subdirectory), both of them are supported since release 3.
+source: http://stackoverflow.com/questions/25699252/android-apis-and-cpu-architectures
+source: personal testing: earliest version included in the latest NDK is android-9
+
+</pre>
+
+<script>
+var converter = new showdown.Converter();
+document.body.innerHTML = converter.makeHtml(md.textContent);
+</script>

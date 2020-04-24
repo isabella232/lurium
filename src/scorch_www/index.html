@@ -1,0 +1,24 @@
+<style>
+html, body {
+	padding:0;
+	margin:0;
+	overflow:hidden;
+}
+#canvas {
+	width:100%;
+	height:100%;
+	position:absolute;
+}
+#welcomeTextbox {
+	position:absolute;
+}
+</style>
+<canvas id="canvas"></canvas>
+<input id="welcomeTextbox" type="text"></input>
+<script>
+	var Module = {
+		canvas:canvas,
+		welcomeTextbox:welcomeTextbox
+	};
+</script>
+<script src=scorch.js?v=2></script>

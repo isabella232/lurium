@@ -1,0 +1,1 @@
+In IIS, create a virtual directory pointing at this directory.

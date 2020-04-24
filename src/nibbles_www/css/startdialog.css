@@ -1,0 +1,105 @@
+
+#startdialog {
+	background-color:#222222;
+	position:absolute;
+	left:0;top:0;
+	right:0;bottom:0;
+	width:400px;
+	height:600px;
+	margin:auto;
+	color:white;
+	font-family:monospace;
+	font-size:16px;
+	text-align:center;
+}
+
+#startdialog .logo {
+	display:block;
+	background-image:url(logoblur2.png?v=2);
+	background-repeat:no-repeat;
+	background-position:center;
+	background-size:100%;
+	max-width:200px;
+	height:75px;
+	margin:auto;
+}
+
+#startdialog .modes {
+	margin:10px;
+	border-width:5px;
+	border-color:#ffffff;
+	border-style:solid;
+	border-radius:10px;
+	padding-left:10px;
+	padding-right:10px;
+	background-color:#fff;
+}
+
+#startdialog .modes select {
+	font-family:monospace;
+	font-size:100%;
+	text-align:center;
+	text-align-last:center;
+	width:100%;
+	border:0;
+	padding:3px;
+}
+
+#startdialog .info {
+	margin-top:10px;
+	margin-bottom:10px;
+	color:#999;
+}
+
+#startdialog .name {
+	border-width:5px;
+	border-color:#ffffff;
+	border-style:solid;
+	border-radius:10px;
+	margin:10px;
+	background-color:#fff;
+}
+
+#startdialog .name input {
+	font-size:100%;
+	font-family:monospace;
+	text-align:center;
+	width:100%;
+	background-color:#fff;
+	padding:5px;
+	border:0;
+}
+
+#startdialog .help {
+	margin-top:10px;
+	margin-bottom:10px;
+	color:#999;
+}
+
+#startdialog a.button {
+	display:block;
+	color:white;
+	border-width:5px;
+	border-color:#ffff00;
+	border-style:solid;
+	border-radius:10px;
+	font-weight:bold;
+	text-decoration:none;
+	margin:10px;
+	padding:10px;
+	
+	background-color:#888800;
+	cursor:hand;
+}
+
+#startdialog a.button:hover {
+	color:black;
+	background-color:#ffff00;
+}
+
+#startdialog .footer {
+	position:absolute;
+	width:100%;
+	bottom:0;
+	text-align:center;
+}

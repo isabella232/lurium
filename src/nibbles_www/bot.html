@@ -1,0 +1,529 @@
+<body></body>
+<script src="js/eventsource.js"></script>
+<script src="js/point.js"></script>
+<script src="js/packets.js"></script>
+<script src="js/binary.js"></script>
+<script src="js/client.js"></script>
+<script src="js/utf8.js"></script>
+<script src="js/state.js"></script>
+
+<script>
+
+/*
+
+	loop all points, place in quadrant 1..4:
+	\    /
+	 \4 /
+	  \/ 1
+	 3/\
+	 / 2\
+    /    \
+	
+finn nærmeste punkt:
+	- sjekk at det finnes en vei, hvis ja, gå videre
+	- 
+	
+	
+	
+BOT_STATE:
+	- undetermined (initial, and after a seek)
+	- seeking
+	
+if (status is undetermined) {
+	// is there anything in the direction/quadrant we are moving
+	status = seeking
+}	
+	
+
+*/
+	var directions = [ new Point(1, 0), new Point(0, 1), new Point(-1, 0), new Point(0, -1) ];
+
+function turtleHitTest(position, turtlePosition, segments) {
+	// either return array of points in turtle, or, cehck positon against lines each time, which of course is much better
+
+	var p1 = turtlePosition;
+	for (var i = 0; i < segments.length; i++) {
+		var segment = segments[i];
+		var p2 = p1.add(directions[segment.direction].multiplyScalar(segment.length));
+		
+		var minx = Math.min(p1.x, p2.x);
+		var miny = Math.min(p1.y, p2.y);
+		var maxx = Math.max(p1.x, p2.x);
+		var maxy = Math.max(p1.y, p2.y);
+		
+		// does position fall between p1/p2
+		// point on line, or .. check axes specifcly?
+		// TODO/ NOTE: using ".X > miny " (with GT operator isntead of GTE) so we dont compare head positions - otherwise always collide
+		if (p1.x == p2.x && p1.x == position.x && position.y >= miny && position.y <= maxy) {
+			//console.log("becauseX ", p1.x, p1.y, p2.x, p2.y, minx, maxx, miny, maxy);
+			return true;
+		} else if (p1.y == p2.y && p1.y == position.y && position.x >= minx && position.x <= maxx) {
+			//console.log("becauseY ", p1.x, p1.y, p2.x, p2.y, minx, maxx, miny, maxy, position.x, position.y);
+			return true;
+		}
+		
+		p1 = p2;
+	}
+	return false;
+}
+
+var BotNames = [ "Bob", "Åge", "Bob-Åge", "Nils", "Leif", "Elling", "Ronny" ];
+var BotNames = [ "Not A Bot", "Nobot", "No bots Here!", "I AM HUMAN", "HAL 9000", "onlyhuman", "RealPerson", "Hubot", "100% real", "JOHNSMITH", "AI lmao", "WOPR", "RIPLEY", "Bender" ];
+
+var BOT_STATUS_UNDETERMINED = 0;
+var BOT_STATUS_SEEKING = 1;
+
+function Bot(infoElement) {
+	this.direction = 0;
+	this.distance = 0;
+	this.accelerating = false;
+	this.time = 0;
+	this.state = new GameState();
+	this.status = BOT_STATUS_UNDETERMINED;
+	this.seekPosition = null;
+	this.infoElement = infoElement;
+
+	this.initClient();
+}
+
+Bot.prototype.initClient = function() {
+	this.client = new GameClient("ws://anders-e.com:9010");
+	//this.client = new GameClient("ws://localhost:9002");
+	this.client.addEventListener("welcome", welcome);
+	this.client.addEventListener("joined", joined);
+	this.client.addEventListener("full", full);
+	this.client.addEventListener("dead", dead);
+	this.client.addEventListener("view", view);
+	
+	var self = this;
+
+	function welcome() {
+		console.log("welcome");
+		var i = Math.floor(Math.random() * BotNames.length);
+		self.client.join(BotNames[i]);
+	}
+	
+	function joined() {
+		console.log("joined");
+	}
+	
+	function full() {
+		console.log("full - rejoin");
+		var i = Math.floor(Math.random() * BotNames.length);
+		self.client.join(BotNames[i]);
+	}
+	
+	function dead() {
+		console.log("dead");
+		self.state = new GameState();
+		self.status = BOT_STATUS_UNDETERMINED;
+		self.seekPosition = null;
+
+		var i = Math.floor(Math.random() * BotNames.length);
+		self.client.join(BotNames[i]);
+	}
+	
+	function view(packet) {
+		//var packet = ViewPacket.fromBinary(reader);
+		self.update(packet);
+	}
+}
+
+function Quadrant(index) {
+	this.index = index;
+	this.nearestTarget = null;
+	this.nearestDistance = Number.MAX_VALUE;
+	this.score = 0;
+	this.obstruct = false; // snake will collide next frame in this direction
+	this.blocked = false; // snake cannot reach the nearest point in this direction
+	this.bitmap = null;
+	this.bitmapOrigin = null;
+	this.bitmapCenter = null;
+	this.bitmapSize = 0;
+}
+
+Bot.prototype.updateBitmap = function(radius, origin) {
+
+	var self = this;
+
+	var size = radius * 2;
+	//console.log(radius);
+	this.bitmap = new Array(size * size);
+	for (var i = 0; i < this.bitmap.length; i++) this.bitmap[i] = 0;
+
+	this.bitmapSize = size;
+	this.bitmapCenter = new Point(radius, radius);
+	this.bitmapOrigin = origin.subtract(this.bitmapCenter);
+	
+	for (var i = 0; i < this.state.viewObjects.length; i++) {
+		var viewObject = this.state.viewObjects[i];
+		if (viewObject.type == NIBBLES_PROTOCOL_OBJECT_PLAYER) {
+			//var origin = viewPacket.origin;
+			// translate turtle to origin and bitmap
+			drawPlayer(viewObject.position.subtract(this.bitmapOrigin), viewObject.segments);
+		}
+	}
+		
+	function drawPlayer(turtlePosition, turtleSegments) {
+		var p1 = turtlePosition;
+		for (var i = 0; i < turtleSegments.length; i++) {
+			var segment = turtleSegments[i];
+			var p2 = p1.add(directions[segment.direction].multiplyScalar(segment.length));
+
+			// draw p1..p2 
+			drawLine(p1, p2);
+			
+			p1 = p2;
+		}
+	}
+	
+	function drawLine(p1, p2) {
+		var minx = Math.min(p1.x, p2.x);
+		var miny = Math.min(p1.y, p2.y);
+		var maxx = Math.max(p1.x, p2.x);
+		var maxy = Math.max(p1.y, p2.y);
+		//console.log("HAI", p1.x, p1.y, " -", p2.x, p2.y);
+		
+		if (p1.x == p2.x) {
+			for (var y = miny; y < maxy; y++) {
+				drawPixel(p1.x, y);
+			}
+		} else if (p1.y == p2.y) {
+			for (var x = minx; x < maxx; x++) {
+				drawPixel(x, p1.y);
+			}
+		} else {
+			// not supported/expected
+		}
+	}
+	
+	function drawPixel(x, y) {
+		//console.log(x, y);
+		if (x < 0 || x > self.bitmapSize || y < 0 || y > self.bitmapSize) return;
+		self.bitmap[x + y * self.bitmapSize] = 1;
+	}
+}
+
+
+Bot.prototype.scanBitmap = function(quadrantIndex, startPosition, targetPosition) {
+	// scan from bitmap center to targetPosition, only in the quadrant
+	// scan = visit cells once
+	// = need a bool to yes/no whether a point is in a quadrant
+	// the center pixel = head position of the bitmap should be in all quadrants
+	
+	// hvis .. alle rundt er hvitt, så kan vi legge pix i en global "checked" list, som betyr at vi ikke trenger sjekke den noen gang igjen, ever
+	
+	// visit all positions from the cneter
+	var self = this;
+
+	var p = startPosition.subtract(self.bitmapOrigin);
+	var t = targetPosition.subtract(self.bitmapOrigin);
+	
+	return scan(p);
+
+	function scan(p) {
+	
+		//console.log(p.x, p.y);
+		drawPixel(p.x, p.y);
+
+		// t = translated target
+		if (t.x == p.x && t.y == p.y) {
+			return true;
+		}
+
+		var result = false;
+
+		for (var i = 0; i < directions.length; i++) {
+			var tp = p.add(directions[i]);
+			if (tp.x < 0 || tp.y < 0 || tp.x > self.bitmapSize || tp.y > self.bitmapSize) {
+				continue;
+			}
+
+			var lp = tp.subtract(self.bitmapCenter);
+			var qi = lp.getQuadrantIndex();
+			//console.log(tp.x, tp.y, " -> " , qi);
+			if (qi != quadrantIndex) {
+				continue;
+			}			
+
+
+			var col = getPixel(tp.x, tp.y);
+			if (col == 0) {
+				result = result || scan(tp);
+			}
+		}
+		
+		return result;
+	}
+
+	function drawPixel(x, y) {
+		//console.log(x, y);
+		if (x < 0 || x > self.bitmapSize || y < 0 || y > self.bitmapSize) return;
+		self.bitmap[x + y * self.bitmapSize] = 2; // visited
+	}
+
+	function getPixel(x, y) {
+		return self.bitmap[x + y * self.bitmapSize];
+	}	
+}
+
+
+Bot.prototype.classifyQuadrants = function(thisPlayer, moveDirection, oppositeDirection) {
+	var quadrants = [ new Quadrant(0), new Quadrant(1), new Quadrant(2), new Quadrant(3) ];
+
+	// TODO: "obstruct" = immediately shut off, we need a "viable", which means when false, there is a snake body directly in the way
+	// by viable, it means the whole thing is shut off, including by ourself, which is going to be the most improtant
+	// we could have a different mode, which simply shoots a line from the head forwards and gives us a score how far until there is something
+	// eh shoot X lnes instead? or check all pixels in a square around - flere players can blocke
+	// bitmap! og så en scan i kvadranten; ikke scanne utenfor, og bare scanne en viss distance, f.eks til nærmeste punkt
+	
+	for (var i = 0; i < this.state.viewObjects.length; i++) {
+		var viewObject = this.state.viewObjects[i];
+		if (viewObject.type == NIBBLES_PROTOCOL_OBJECT_PIXEL) {
+			if (viewObject.color != thisPlayer.color && viewObject.color != 6) {
+				continue; // inedible
+			}
+
+			var qi = viewObject.position.subtract(thisPlayer.position).getQuadrantIndex();
+			var quadrant = quadrants[qi];
+			
+			var dist = thisPlayer.position.distanceFrom(viewObject.position);
+			if (dist < quadrant.nearestDistance) {
+				quadrant.nearestDistance = dist;
+				quadrant.nearestTarget = viewObject;
+			}
+
+			var distScore = 1 - Math.min(dist, 20) / 19; // clamp/scale dist to 0..1, divide by 19 to give most remote a score of >0
+			var colorScore;
+			if (viewObject.color == thisPlayer.color) {
+				colorScore = 3;
+			} else {
+				colorScore = 1;
+			}
+			
+			if (qi == moveDirection) {
+				quadrant.score += (distScore * distScore * distScore * distScore) * colorScore;
+			} else if (qi == oppositeDirection) {
+				quadrant.score += (distScore) * colorScore;
+			} else {
+				quadrant.score += (distScore * distScore) * colorScore;
+			}
+		} else if (viewObject.type == NIBBLES_PROTOCOL_OBJECT_PLAYER) {
+
+			// two levels of collision: "in which quadrant is this player" og "is there a player in the immediate next cell"
+			// we may want to avoid a quadrant where a player is at full force, or its blocked to such a degree we should give up
+			
+			var directions = [ new Point(1, 0), new Point(0, 1), new Point(-1, 0), new Point(0, -1) ];
+
+			for (var j = 0; j < directions.length; j++) {
+				if (turtleHitTest(thisPlayer.position.add(directions[j]), viewObject.position, viewObject.segments)) {
+					// obstructed!
+					quadrants[j].obstruct = true;
+				}
+			}
+		}
+	}
+
+	for (var i = 0; i < quadrants.length; i++) {
+		var quadrant = quadrants[i];
+
+		var quadrantPosition = null;
+		if (quadrant.nearestTarget != null) {
+			quadrantPosition = quadrant.nearestTarget.position;
+		} else {
+			// pick a position some units into the quadrant
+			quadrantPosition = thisPlayer.position.add(directions[i].multiplyScalar(5));
+		}
+		
+		quadrants[i].blocked = !this.scanBitmap(i, thisPlayer.position, quadrantPosition);
+	}
+
+	return quadrants;
+}
+
+Bot.prototype.selectNewTarget = function(thisPlayer, quadrants) {
+	var wantDirection = -1;
+	var wantScore = 0;
+	for (var i = 0; i < quadrants.length; i++) {
+	
+		var quadrant = quadrants[i];
+		if (quadrant.blocked) {
+			continue;
+		}
+
+		if (quadrants[i].score > wantScore) {
+			wantScore = quadrants[i].score;
+			wantDirection = i;
+		}
+	}
+	
+	if (wantDirection != -1) {
+		this.seekPosition = quadrants[wantDirection].nearestTarget.position;
+		return true;
+	} else {
+		this.seekPosition = null;
+		return false;
+	}
+}
+
+Bot.prototype.update = function(viewPacket) {
+
+	this.state.processViewDiff(viewPacket);
+	
+	// draw all  players on the bitmap
+	this.updateBitmap(viewPacket.radius, viewPacket.origin);
+	
+	var thisPlayer = this.state.getObjectAt(NIBBLES_PROTOCOL_OBJECT_PLAYER, viewPacket.origin);
+	var oppositeDirection = thisPlayer.segments[0].direction;
+	var moveDirection = (oppositeDirection + 2) % 4; // move direction = opposite of render direction, rotate 180 degrees = +2 % 4
+
+	// finn ny posisjon: finn best quadrant, velg nærmeste punkt, gå til med minst mulig retningsskifte. må justere retning hvis obstruction
+	this.infoElement.innerHTML = viewPacket.origin.x + "," + viewPacket.origin.y + ", segments " + thisPlayer.segments.length;
+		
+	var quadrants = this.classifyQuadrants(thisPlayer, moveDirection, oppositeDirection);
+	
+	if (this.seekPosition != null && this.seekPosition.x == thisPlayer.position.x && this.seekPosition.y == thisPlayer.position.y) {
+		this.status = BOT_STATUS_UNDETERMINED;
+		this.seekPosition = null;
+	}
+
+	if (this.seekPosition != null) {
+		var relativePosition = this.seekPosition.subtract(thisPlayer.position);
+		if (quadrants[relativePosition.getQuadrantIndex()].blocked) {
+			// is blocked now, go elsewhere
+			this.status = BOT_STATUS_UNDETERMINED;
+			this.seekPosition = null;
+		}
+	}
+	
+	
+	if (this.status == BOT_STATUS_UNDETERMINED) {
+		if (this.selectNewTarget(thisPlayer, quadrants)) {
+			this.status = BOT_STATUS_SEEKING;
+		}
+	}
+	
+	// if seeking, move towards the seekPosition, we can reselet a new seekposition if it became blocked since, but for now. . .. lets just try to move
+	var wantDirection = -1;
+	if (this.status == BOT_STATUS_SEEKING) {
+		var relativePosition = this.seekPosition.subtract(thisPlayer.position);
+		// can move in two or one optimal direction= want to move maks vert/hors
+		// basically, the relative values indicate optmal directions; positive x = dir0 is one of the dirs, negative x = dir2, same for y
+		// getQuadrantIndex basicly returns the most extreme axis
+		// OK SO; we we already move in one of the relativePositions, we have our wantDirection
+		if (
+			(this.direction == 0 && relativePosition.x > 0) || 
+			(this.direction == 1 && relativePosition.y > 0) ||
+			(this.direction == 2 && relativePosition.x < 0) ||
+			(this.direction == 3 && relativePosition.y < 0)) 
+		{
+			wantDirection = this.direction;
+		} else {
+			wantDirection = relativePosition.getQuadrantIndex();
+		}
+	} else {
+		// there nothing (viable) to eat in sight, possibly choose the least crowded direction
+		wantDirection = this.direction; // try to keep moving?
+	}
+
+	if (wantDirection != -1 && quadrants[wantDirection].obstruct) {
+		wantDirection = -1;
+		// pick another direction, the least crowded?
+	}
+	
+
+	if (wantDirection == -1) {
+		var primaryDirections = [];
+		var secondaryDirections = [];
+		for (var i = 0; i < quadrants.length; i++) {
+			var quadrant = quadrants[i];
+			if (quadrant.obstruct) {
+				continue;
+			}
+			if (quadrant.blocked) {
+				// blcoked= second choice
+				secondaryDirections.push(i);
+			} else {
+				primaryDirections.push(i);
+			}
+		}
+
+		// if theres primary, pick a random, otherwise pick a random secondary
+		if (primaryDirections.length > 0) {
+			wantDirection = primaryDirections[Math.floor(Math.random() * primaryDirections.length)];
+		} else if (secondaryDirections.length > 0) {
+			wantDirection = secondaryDirections[Math.floor(Math.random() * secondaryDirections.length)];
+		}
+	}
+	
+	if (wantDirection == oppositeDirection) {
+		// cant go in opposite direction, randomise +1 or +3  - could even include forward as an option, but wth less probablitily
+		// or go in the direction with the higest score of the two
+		var dir1 = (wantDirection + 1) % 4;
+		var dir2 = (wantDirection + 3) % 4;
+		
+		var dirScore1 = quadrants[dir1].scores;
+		var dirScore2 = quadrants[dir2].scores;
+		
+		if (dirScore1 > dirScore2 && !quadrants[dir1].obstruct) {
+			wantDirection = dir1;
+		} else if (!quadrants[dir2].obstruct) { // NOTE: was dir1?!? changed (and ported) w/o testing
+			wantDirection = dir2;
+		} else {
+			wantDirection = moveDirection; // kep moving
+		}
+	}
+	
+	this.time++;
+	
+	if (wantDirection != -1) {
+
+		this.direction = wantDirection;
+
+		var angle = this.direction / 4 * 2 * Math.PI;
+		this.client.move(angle, 0);
+
+	}
+}
+
+
+
+function App() {
+	// add bot button, watch state
+	this.addBotButton = document.createElement("a");
+	this.addBotButton.href = "javascript:void(0)";
+	this.addBotButton.innerHTML = "Add Bot";
+	this.addBotButton.addEventListener("click", addBot);
+	
+	document.body.appendChild(this.addBotButton);
+	
+	this.botCountLabel = document.createElement("div");
+	document.body.appendChild(this.botCountLabel);
+	
+	this.bots = [];
+	
+	var self = this;
+
+	function addBot() {
+		var infoElement = document.createElement("div");
+		document.body.appendChild(infoElement);
+		var bot = new Bot(infoElement);
+		self.bots.push(bot);
+		self.botCountLabel.innerHTML = self.bots.length + " bots";
+	}
+}
+
+var app = new App();
+/*var b = new Bot();
+
+var segments = [ new TurtleSegment(0, 240) ];
+var player = new ViewObject(NIBBLES_PROTOCOL_OBJECT_PLAYER, 1, new Point(10, 30), { color:3, segments: segments});
+
+//b.state.addState(player);
+b.updateBitmap(50, new Point(50, 50));
+// now we can try scan quadrant 3 from 50,50 to 50, 0 f.ex .. should be blocked
+var result = b.scanBitmap(3, new Point(50, 50), new Point(50, 3));
+//var result =2;
+console.log("found: " + result);
+*/
+</script>
